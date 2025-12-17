@@ -1,28 +1,3 @@
-"""
-Course Number: ENGR 13300
-Semester: e.g. Fall 2025
-
-Description:
-    This program implements a manual lock tracking system using a pre-trained YOLO model. 
-    Program will ask for a video source (webcam or video file) and allow the user to define a target box size.
-    The user can move the target box using 'WASD' keys and lock onto detected objects within the box using the 'T' key. 
-    The program tracks the locked object and displays the tracking status on the video feed.
-
-Assignment Information:
-    Assignment:     Individual Project
-    Team ID:        LC5 - 13
-    Author:         Lucas, lsoldano@purdue.edu
-    Date:           12/9/2025
-
-Contributors:
-    ChatGPT: Assisted with code structure and logic implementation.
-
-Academic Integrity Statement:
-    I have not used source code obtained from any unauthorized
-    source, either modified or unmodified; nor have I provided
-    another student access to my code.  The project I am
-    submitting is my own original work.
-"""
 import cv2
 import numpy
 from ultralytics import YOLO
@@ -31,7 +6,7 @@ from get_input_lsoldano import get_vid_input
 print('\n-----SETUP-----\n')
 
 #-----Model selection-----
-selected_model = 'visDrone.pt'  # Default model
+selected_model = 'visDrone.pt'  # Default model, visDrone.pt reccomended
 model = YOLO(selected_model)
 
 #-----Video source selection-----
@@ -186,4 +161,5 @@ while True:
 
 cap.release()
 out.release()
+
 cv2.destroyAllWindows()
