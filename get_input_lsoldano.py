@@ -1,28 +1,3 @@
-"""
-Course Number: ENGR 13300
-Semester: e.g. Fall 2025
-
-Description:
-    This program serves as a utility to obtain video input from 
-    either a webcam or a video file located in the current directory. 
-    It prompts the user to select the desired input method and returns 
-    a video capture object for further processing.
-
-Assignment Information:
-    Assignment:     Individual Project 
-    Team ID:        LC5 - 13
-    Author:         Lucas, lsoldano@purdue.edu
-    Date:           12/9/2025
-
-Contributors:
-    ChatGPT: Assisted with code structure and logic implementation.
-
-Academic Integrity Statement:
-    I have not used source code obtained from any unauthorized
-    source, either modified or unmodified; nor have I provided
-    another student access to my code.  The project I am
-    submitting is my own original work.
-"""
 from pathlib import Path
 import cv2
 
@@ -61,3 +36,4 @@ def get_vid_input():
             
         else:
             print("Invalid input, please try again.\n")
+
