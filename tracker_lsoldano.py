@@ -1,16 +1,85 @@
+'''
+This program detects and tracks selected objects across the video frame using IOU selection. 
+This tracks the object by finding the detection box with most overlap to the previous frame's 
+tracked detection. This method does not work well for fast-moving frames, but it is extremely 
+lightweight and works well depending on the selected model. Through testing, I found the best
+model to be visDrone.
+
+Users can move a targeting box over the object they would like to track using >>>'W', 'A', 'S', 'D'<<<
+and can press >>>'T'<<< to reset the window. Once an object is tracked, the window turns red and
+should follow the target. To quit, press >>>'Q'<<<
+
+This program implements CUDA as a way to process detections using the computer's GPU. This results
+in faster, smoother results.
+
+Make sure to include model files (*.pt) within the same file as the program.
+'''
+
 import cv2
 import numpy
 from ultralytics import YOLO
-from get_input_lsoldano import get_vid_input
+from pathlib import Path
 
 print('\n-----SETUP-----\n')
 
+directory_path = Path('.') # Sets path to program's folder
+
 #-----Model selection-----
-selected_model = 'visDrone.pt'  # Default model, visDrone.pt reccomended
+while True:
+    model_list = list(directory_path.glob('*.pt'))
+    print('\nAvailable YOLO models:')
+    j = 1
+    for m in model_list: # prints out numbered list of files
+        print(f'{j}- {m.name}')
+        j = j+1
+    model_selection = int(input('\nSelect a model file by number: '))
+    # Ensures valid selection
+    if 1 <= model_selection <= len(model_list):
+        selected_model = model_list[model_selection - 1]
+        break
+    else:
+        print("Invalid selection, please try again.\n")
+
+#selected_model = 'visDrone.pt'  # >>>Default model<<<
+
 model = YOLO(selected_model)
 
 #-----Video source selection-----
-cap = get_vid_input()
+
+
+while True:
+
+    cap_method = input('Select video source -> [1] Webcam | [2] Video File: ')
+
+    if cap_method == '1':
+        cap = cv2.VideoCapture(0,cv2.CAP_DSHOW) 
+        # Webcam check
+        # Checks for error with webcam
+        if not cap.isOpened():
+            print("Could not open video device!")
+            cap = None
+        break
+
+    if cap_method == '2':
+        # Error loop, runs until valid video file is selected
+        while True:
+            vid_list = list(directory_path.glob('*.mov')) + list(directory_path.glob('*.mp4')) + list(directory_path.glob('*.avi'))
+            print('\nAvailable video files:')
+            j = 1
+            for v in vid_list: # prints out numbered list of files
+                print(f'{j}- {v.name}')
+                j = j+1
+            vid_selection = int(input('\nSelect a video file by number: '))
+            # Ensures valid selection
+            if 1 <= vid_selection <= len(vid_list):
+                selected_video = vid_list[vid_selection - 1]
+                cap = cv2.VideoCapture(selected_video)
+                break
+            else:
+                print("Invalid selection, please try again.\n")            
+    else:
+        print("Invalid input, please try again.\n")
+
 if cap is None:
     print("Could not obtain video source. Exiting.")
     exit()
@@ -40,14 +109,14 @@ try:
     model.to('cuda')
     print("Using GPU for inference.")
 except:
-    print("GPU not available, using CPU.")
+    print("***GPU not available, using CPU***")
 
 input("Press Enter to start video processing...")
 
 # Targeter Parameters
 MOVE_SPEED = 15  # pixels per key press
-MAX_LOST_FRAMES = 30
-IOU_THRESHOLD = 0.3
+MAX_LOST_FRAMES = 30 # Lost frames before unlocking
+IOU_THRESHOLD = 0.3 # Overlap threshold to lock
 
 #-----Box setup-----
 
@@ -77,9 +146,7 @@ def make_box(x, y, w, h):
 
 #Brings targeter to center of frame
 def center_frame():
-
     return width // 2 - box_w // 2, height // 2 - box_h // 2
-
 
 #-----Processing loop-----
 while True:
@@ -161,5 +228,4 @@ while True:
 
 cap.release()
 out.release()
-
 cv2.destroyAllWindows()
