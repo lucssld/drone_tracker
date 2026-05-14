@@ -1,0 +1,219 @@
+'''
+Simple MAVLink Test Script
+For Raspberry Pi -> INAV Flight Controller
+
+Features:
+- Connects to FC
+- Prints telemetry
+- Sends simple RC override commands
+
+Controls:
+A = yaw left
+D = yaw right
+W = throttle up
+S = throttle down
+X = center controls
+Q = quit
+
+IMPORTANT:
+REMOVE PROPS BEFORE TESTING
+'''
+
+from pymavlink import mavutil
+import threading
+import time
+import keyboard
+
+# =========================================================
+# CONNECTION
+# =========================================================
+
+master = mavutil.mavlink_connection(
+    '/dev/serial0',   # Change if needed
+    baud=115200
+)
+
+print("Waiting for heartbeat...")
+
+master.wait_heartbeat()
+
+print("CONNECTED")
+print()
+
+# =========================================================
+# RC VALUES
+# =========================================================
+
+roll = 1500
+pitch = 1500
+throttle = 1000
+yaw = 1500
+
+running = True
+
+# =========================================================
+# TELEMETRY THREAD
+# =========================================================
+
+def telemetry_loop():
+
+    global running
+
+    while running:
+
+        msg = master.recv_match(blocking=True, timeout=1)
+
+        if msg is not None:
+
+            msg_type = msg.get_type()
+
+            # ------------------------------------------------
+            # Attitude Data
+            # ------------------------------------------------
+            if msg_type == 'ATTITUDE':
+
+                roll_deg = msg.roll * 57.2958
+                pitch_deg = msg.pitch * 57.2958
+                yaw_deg = msg.yaw * 57.2958
+
+                print(
+                    f'ROLL: {roll_deg:.1f} | '
+                    f'PITCH: {pitch_deg:.1f} | '
+                    f'YAW: {yaw_deg:.1f}'
+                )
+
+            # ------------------------------------------------
+            # Battery Data
+            # ------------------------------------------------
+            elif msg_type == 'SYS_STATUS':
+
+                voltage = msg.voltage_battery / 1000.0
+
+                print(f'BATTERY: {voltage:.2f}V')
+
+# =========================================================
+# START TELEMETRY THREAD
+# =========================================================
+
+thread = threading.Thread(
+    target=telemetry_loop,
+    daemon=True
+)
+
+thread.start()
+
+# =========================================================
+# SEND RC OVERRIDE
+# =========================================================
+
+def send_rc():
+
+    master.mav.rc_channels_override_send(
+        master.target_system,
+        master.target_component,
+
+        roll,      # CH1
+        pitch,     # CH2
+        throttle,  # CH3
+        yaw,       # CH4
+
+        0, 0, 0, 0
+    )
+
+# =========================================================
+# MAIN LOOP
+# =========================================================
+
+print()
+print("Controls:")
+print("W/S = throttle")
+print("A/D = yaw")
+print("X = center")
+print("Q = quit")
+print()
+
+while running:
+
+    # -----------------------------------------------------
+    # YAW LEFT
+    # -----------------------------------------------------
+    if keyboard.is_pressed('a'):
+
+        yaw = 1400
+
+        print("YAW LEFT")
+
+        send_rc()
+
+        time.sleep(0.1)
+
+    # -----------------------------------------------------
+    # YAW RIGHT
+    # -----------------------------------------------------
+    elif keyboard.is_pressed('d'):
+
+        yaw = 1600
+
+        print("YAW RIGHT")
+
+        send_rc()
+
+        time.sleep(0.1)
+
+    # -----------------------------------------------------
+    # THROTTLE UP
+    # -----------------------------------------------------
+    elif keyboard.is_pressed('w'):
+
+        throttle = min(1600, throttle + 25)
+
+        print(f"THROTTLE: {throttle}")
+
+        send_rc()
+
+        time.sleep(0.1)
+
+    # -----------------------------------------------------
+    # THROTTLE DOWN
+    # -----------------------------------------------------
+    elif keyboard.is_pressed('s'):
+
+        throttle = max(1000, throttle - 25)
+
+        print(f"THROTTLE: {throttle}")
+
+        send_rc()
+
+        time.sleep(0.1)
+
+    # -----------------------------------------------------
+    # CENTER CONTROLS
+    # -----------------------------------------------------
+    elif keyboard.is_pressed('x'):
+
+        roll = 1500
+        pitch = 1500
+        yaw = 1500
+
+        print("CENTER")
+
+        send_rc()
+
+        time.sleep(0.1)
+
+    # -----------------------------------------------------
+    # QUIT
+    # -----------------------------------------------------
+    elif keyboard.is_pressed('q'):
+
+        running = False
+
+        break
+
+    time.sleep(0.02)
+
+# =========================================================
+# CLEANUP
+# =========================================================
+
+print("Exiting...")
