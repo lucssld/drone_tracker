@@ -2,12 +2,15 @@
 Hybrid YOLO + Optical Flow Tracker
 WITH MAVLINK TARGET GPS ESTIMATION
 
-Features Added:
-- MAVLink telemetry input
-- Live GPS + heading display
-- Target GPS estimation
-- Distance estimation from bbox size
-- Continuous waypoint estimation
+Optimized for Raspberry Pi
+
+Features:
+- Sparse YOLO detections
+- Optical flow tracking
+- ROI-only detections
+- Manual target selection
+- MAVLink telemetry
+- Live target GPS estimation
 
 Controls:
 W A S D = Move targeting box
@@ -21,8 +24,8 @@ from ultralytics import YOLO
 from pathlib import Path
 from pymavlink import mavutil
 
-import math
 import threading
+import math
 
 print('\n-----SETUP-----\n')
 
@@ -31,14 +34,13 @@ directory_path = Path('.')
 # =========================================================
 # MAVLINK CONFIG
 # =========================================================
+
 SERIAL_PORT = "/dev/serial0"
 BAUD = 115200
 
-# Camera FOV
 CAMERA_FOV_H = 78
 CAMERA_FOV_V = 64
 
-# Real-world target widths (meters)
 TARGET_WIDTHS = {
     "person": 0.45,
     "car": 1.8,
@@ -49,14 +51,16 @@ TARGET_WIDTHS = {
 # =========================================================
 # TELEMETRY STATE
 # =========================================================
+
 drone_lat = None
 drone_lon = None
 drone_alt = None
 drone_heading = None
 
 # =========================================================
-# MAVLINK CONNECT
+# CONNECT MAVLINK
 # =========================================================
+
 print("Connecting MAVLink...")
 
 master = mavutil.mavlink_connection(
@@ -69,135 +73,9 @@ master.wait_heartbeat()
 print("MAVLink Connected")
 
 # =========================================================
-# GPS OFFSET
-# =========================================================
-def offset_gps(lat, lon, north_m, east_m):
-
-    dlat = north_m / 111320.0
-
-    dlon = east_m / (
-        111320.0 * math.cos(
-            math.radians(lat)
-        )
-    )
-
-    return (
-        lat + dlat,
-        lon + dlon
-    )
-
-# =========================================================
-# TARGET GPS ESTIMATION
-# =========================================================
-def estimate_target_position(
-    bbox,
-    class_name,
-    frame_width,
-    frame_height
-):
-
-    global drone_lat
-    global drone_lon
-    global drone_alt
-    global drone_heading
-
-    if None in (
-        drone_lat,
-        drone_lon,
-        drone_alt,
-        drone_heading
-    ):
-        return None
-
-    x1, y1, x2, y2 = bbox
-
-    bbox_w = x2 - x1
-    bbox_h = y2 - y1
-
-    cx = (x1 + x2) / 2
-    cy = (y1 + y2) / 2
-
-    # -----------------------------------------------------
-    # Screen Offset
-    # -----------------------------------------------------
-    norm_x = (
-        (cx - frame_width / 2)
-        / (frame_width / 2)
-    )
-
-    norm_y = (
-        (cy - frame_height / 2)
-        / (frame_height / 2)
-    )
-
-    yaw_offset = (
-        norm_x * (CAMERA_FOV_H / 2)
-    )
-
-    pitch_offset = (
-        norm_y * (CAMERA_FOV_V / 2)
-    )
-
-    # -----------------------------------------------------
-    # Distance Estimate
-    # -----------------------------------------------------
-    real_width = TARGET_WIDTHS.get(
-        class_name,
-        1.0
-    )
-
-    focal_px = (
-        frame_width /
-        (
-            2 *
-            math.tan(
-                math.radians(
-                    CAMERA_FOV_H / 2
-                )
-            )
-        )
-    )
-
-    est_distance = (
-        real_width * focal_px
-    ) / max(bbox_w, 1)
-
-    # -----------------------------------------------------
-    # Bearing
-    # -----------------------------------------------------
-    bearing = (
-        drone_heading + yaw_offset
-    ) % 360
-
-    bearing_rad = math.radians(bearing)
-
-    north = (
-        est_distance *
-        math.cos(bearing_rad)
-    )
-
-    east = (
-        est_distance *
-        math.sin(bearing_rad)
-    )
-
-    target_lat, target_lon = offset_gps(
-        drone_lat,
-        drone_lon,
-        north,
-        east
-    )
-
-    return {
-        "lat": target_lat,
-        "lon": target_lon,
-        "distance": est_distance,
-        "bearing": bearing
-    }
-
-# =========================================================
 # TELEMETRY THREAD
 # =========================================================
+
 def telemetry_loop():
 
     global drone_lat
@@ -226,15 +104,138 @@ def telemetry_loop():
             msg.hdg / 100.0
         )
 
-# Start telemetry thread
 threading.Thread(
     target=telemetry_loop,
     daemon=True
 ).start()
 
 # =========================================================
+# GPS OFFSET
+# =========================================================
+
+def offset_gps(lat, lon, north_m, east_m):
+
+    dlat = north_m / 111320.0
+
+    dlon = east_m / (
+        111320.0 *
+        math.cos(math.radians(lat))
+    )
+
+    return (
+        lat + dlat,
+        lon + dlon
+    )
+
+# =========================================================
+# TARGET ESTIMATION
+# =========================================================
+
+def estimate_target_position(
+    bbox,
+    class_name
+):
+
+    global drone_lat
+    global drone_lon
+    global drone_alt
+    global drone_heading
+
+    if None in (
+        drone_lat,
+        drone_lon,
+        drone_alt,
+        drone_heading
+    ):
+        return None
+
+    x1, y1, x2, y2 = bbox
+
+    bbox_w = x2 - x1
+
+    cx = (x1 + x2) / 2
+
+    # -----------------------------------------------------
+    # Horizontal screen offset
+    # -----------------------------------------------------
+
+    norm_x = (
+        (cx - width / 2)
+        / (width / 2)
+    )
+
+    yaw_offset = (
+        norm_x *
+        (CAMERA_FOV_H / 2)
+    )
+
+    # -----------------------------------------------------
+    # Distance estimate
+    # -----------------------------------------------------
+
+    real_width = TARGET_WIDTHS.get(
+        class_name,
+        1.0
+    )
+
+    focal_px = (
+        width /
+        (
+            2 *
+            math.tan(
+                math.radians(
+                    CAMERA_FOV_H / 2
+                )
+            )
+        )
+    )
+
+    est_distance = (
+        real_width *
+        focal_px
+    ) / max(bbox_w, 1)
+
+    # -----------------------------------------------------
+    # Bearing
+    # -----------------------------------------------------
+
+    bearing = (
+        drone_heading +
+        yaw_offset
+    ) % 360
+
+    bearing_rad = math.radians(
+        bearing
+    )
+
+    north = (
+        est_distance *
+        math.cos(bearing_rad)
+    )
+
+    east = (
+        est_distance *
+        math.sin(bearing_rad)
+    )
+
+    target_lat, target_lon = offset_gps(
+        drone_lat,
+        drone_lon,
+        north,
+        east
+    )
+
+    return {
+        "lat": target_lat,
+        "lon": target_lon,
+        "distance": est_distance,
+        "bearing": bearing
+    }
+
+# =========================================================
 # Model Selection
 # =========================================================
+
 while True:
 
     model_list = list(
@@ -270,6 +271,7 @@ model = YOLO(selected_model)
 # =========================================================
 # Video Source Selection
 # =========================================================
+
 selection = False
 
 while not selection:
@@ -362,6 +364,7 @@ while not selection:
 # =========================================================
 # Video Properties
 # =========================================================
+
 width = int(
     cap.get(cv2.CAP_PROP_FRAME_WIDTH)
 )
@@ -373,6 +376,7 @@ height = int(
 # =========================================================
 # Target Box Size
 # =========================================================
+
 user = input(
     "\nEnter targeter size | "
     "[1] Small (50x50) | "
@@ -381,12 +385,15 @@ user = input(
 )
 
 if user == '1':
+
     box_w, box_h = 50, 50
 
 elif user == '2':
+
     box_w, box_h = 100, 100
 
 elif user == '3':
+
     box_w, box_h = 150, 150
 
 else:
@@ -403,6 +410,7 @@ input("Press Enter to start...")
 # =========================================================
 # Parameters
 # =========================================================
+
 MOVE_SPEED = 15
 
 MAX_LOST_FRAMES = 30
@@ -418,12 +426,11 @@ ROI_PADDING_LOCKED = 100
 # =========================================================
 # Tracking State
 # =========================================================
-box_x = width // 2 - box_w // 2
 
+box_x = width // 2 - box_w // 2
 box_y = height // 2 - box_h // 2
 
 tracked_box = None
-
 tracked_class = None
 
 locked = False
@@ -441,6 +448,7 @@ target_gps = None
 # =========================================================
 # Utility Functions
 # =========================================================
+
 def iou(boxA, boxB):
 
     xA = max(boxA[0], boxB[0])
@@ -483,9 +491,17 @@ def make_box(x, y, w, h):
         dtype=np.float32
     )
 
+def center_frame():
+
+    return (
+        width // 2 - box_w // 2,
+        height // 2 - box_h // 2
+    )
+
 # =========================================================
-# Main Loop
+# MAIN LOOP
 # =========================================================
+
 while True:
 
     ret, frame = cap.read()
@@ -509,8 +525,9 @@ while True:
     )
 
     # =====================================================
-    # Optical Flow
+    # OPTICAL FLOW
     # =====================================================
+
     if (
         locked and
         tracked_box is not None and
@@ -570,7 +587,12 @@ while True:
     # =====================================================
     # YOLO DETECTION
     # =====================================================
+
     if frame_count % frame_skip == 0:
+
+        # -------------------------------------------------
+        # ROI
+        # -------------------------------------------------
 
         if locked and tracked_box is not None:
 
@@ -603,23 +625,27 @@ while True:
 
             roi_x1 = max(
                 0,
-                box_x - ROI_PADDING_UNLOCKED
+                box_x -
+                ROI_PADDING_UNLOCKED
             )
 
             roi_y1 = max(
                 0,
-                box_y - ROI_PADDING_UNLOCKED
+                box_y -
+                ROI_PADDING_UNLOCKED
             )
 
             roi_x2 = min(
                 width,
-                box_x + box_w +
+                box_x +
+                box_w +
                 ROI_PADDING_UNLOCKED
             )
 
             roi_y2 = min(
                 height,
-                box_y + box_h +
+                box_y +
+                box_h +
                 ROI_PADDING_UNLOCKED
             )
 
@@ -664,7 +690,9 @@ while True:
                     det[3] += roi_y1
 
                     class_name = (
-                        model.names[int(cls_id)]
+                        model.names[
+                            int(cls_id)
+                        ]
                     )
 
                     detections.append(
@@ -674,10 +702,90 @@ while True:
                         )
                     )
 
-            # =================================================
-            # LOCK ACQUISITION
-            # =================================================
-            if not locked:
+            # ------------------------------------------------
+            # REACQUIRE TRACK
+            # ------------------------------------------------
+
+            if locked and tracked_box is not None:
+
+                best_iou = 0
+                best_det = None
+                best_class = None
+
+                for det, class_name in detections:
+
+                    overlap = iou(
+                        det,
+                        tracked_box
+                    )
+
+                    if overlap > best_iou:
+
+                        best_iou = overlap
+                        best_det = det
+                        best_class = class_name
+
+                if (
+                    best_det is not None and
+                    best_iou > IOU_THRESHOLD
+                ):
+
+                    tracked_box = best_det
+                    tracked_class = best_class
+
+                    lost_frames = 0
+
+                    x1, y1, x2, y2 = map(
+                        int,
+                        tracked_box
+                    )
+
+                    x1 = max(0, x1)
+                    y1 = max(0, y1)
+
+                    x2 = min(width, x2)
+                    y2 = min(height, y2)
+
+                    roi_gray = gray[
+                        y1:y2,
+                        x1:x2
+                    ]
+
+                    corners = (
+                        cv2.goodFeaturesToTrack(
+                            roi_gray,
+                            maxCorners=20,
+                            qualityLevel=0.3,
+                            minDistance=7
+                        )
+                    )
+
+                    if corners is not None:
+
+                        corners[:, 0, 0] += x1
+                        corners[:, 0, 1] += y1
+
+                        track_points = corners
+
+                else:
+
+                    lost_frames += 1
+
+                    if (
+                        lost_frames >
+                        MAX_LOST_FRAMES
+                    ):
+
+                        locked = False
+                        tracked_box = None
+                        tracked_class = None
+                        track_points = None
+
+            # ------------------------------------------------
+            # INITIAL LOCK
+            # ------------------------------------------------
+
+            else:
 
                 for det, class_name in detections:
 
@@ -689,16 +797,50 @@ while True:
                     ):
 
                         tracked_box = det
-
                         tracked_class = class_name
 
                         locked = True
+
+                        lost_frames = 0
+
+                        x1, y1, x2, y2 = map(
+                            int,
+                            tracked_box
+                        )
+
+                        x1 = max(0, x1)
+                        y1 = max(0, y1)
+
+                        x2 = min(width, x2)
+                        y2 = min(height, y2)
+
+                        roi_gray = gray[
+                            y1:y2,
+                            x1:x2
+                        ]
+
+                        corners = (
+                            cv2.goodFeaturesToTrack(
+                                roi_gray,
+                                maxCorners=20,
+                                qualityLevel=0.3,
+                                minDistance=7
+                            )
+                        )
+
+                        if corners is not None:
+
+                            corners[:, 0, 0] += x1
+                            corners[:, 0, 1] += y1
+
+                            track_points = corners
 
                         break
 
     # =====================================================
     # TARGET GPS UPDATE
     # =====================================================
+
     if (
         locked and
         tracked_box is not None and
@@ -707,14 +849,13 @@ while True:
 
         target_gps = estimate_target_position(
             tracked_box,
-            tracked_class,
-            width,
-            height
+            tracked_class
         )
 
     # =====================================================
-    # DRAW
+    # DRAW TRACKING
     # =====================================================
+
     if locked and tracked_box is not None:
 
         x1, y1, x2, y2 = map(
@@ -730,53 +871,74 @@ while True:
             2
         )
 
-        # -------------------------------------------------
-        # GPS TEXT
-        # -------------------------------------------------
+        cv2.putText(
+            frame,
+            f"TRACK {tracked_class}",
+            (x1, y1 - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 0, 255),
+            2
+        )
+
         if target_gps is not None:
 
             cv2.putText(
                 frame,
-                f"{tracked_class}",
+                f"DIST "
+                f"{target_gps['distance']:.1f}m",
+                (x1, y1 - 35),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 255, 255),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                f"BRG "
+                f"{target_gps['bearing']:.1f}",
                 (x1, y1 - 60),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                0.55,
                 (0, 255, 255),
                 2
             )
 
             cv2.putText(
                 frame,
-                f"DIST: "
-                f"{target_gps['distance']:.1f}m",
-                (x1, y1 - 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 255),
-                2
-            )
-
-            cv2.putText(
-                frame,
-                f"BRG: "
-                f"{target_gps['bearing']:.1f}",
-                (x1, y1 - 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 255),
-                2
-            )
-
-            cv2.putText(
-                frame,
-                f"{target_gps['lat']:.6f}, "
-                f"{target_gps['lon']:.6f}",
+                f"{target_gps['lat']:.6f}",
                 (20, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                0.55,
                 (255, 255, 255),
                 2
             )
+
+            cv2.putText(
+                frame,
+                f"{target_gps['lon']:.6f}",
+                (20, 55),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (255, 255, 255),
+                2
+            )
+
+        # Optical flow points
+        if track_points is not None:
+
+            for point in track_points:
+
+                px, py = point.ravel()
+
+                cv2.circle(
+                    frame,
+                    (int(px), int(py)),
+                    3,
+                    (255, 0, 0),
+                    -1
+                )
 
     else:
 
@@ -789,17 +951,27 @@ while True:
             2
         )
 
+        cv2.putText(
+            frame,
+            "FREE",
+            (box_x, box_y - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2
+        )
+
     # =====================================================
-    # DRONE TELEMETRY DISPLAY
+    # TELEMETRY DISPLAY
     # =====================================================
+
     if drone_lat is not None:
 
         cv2.putText(
             frame,
-            f"DRONE "
-            f"{drone_lat:.6f}, "
-            f"{drone_lon:.6f}",
-            (20, height - 60),
+            f"ALT "
+            f"{drone_alt:.1f}m",
+            (20, height - 50),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.55,
             (255, 255, 255),
@@ -808,16 +980,18 @@ while True:
 
         cv2.putText(
             frame,
-            f"ALT: "
-            f"{drone_alt:.1f}m "
-            f"HDG: "
+            f"HDG "
             f"{drone_heading:.1f}",
-            (20, height - 30),
+            (20, height - 25),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.55,
             (255, 255, 255),
             2
         )
+
+    # =====================================================
+    # DISPLAY
+    # =====================================================
 
     cv2.imshow("Tracker", frame)
 
@@ -831,30 +1005,34 @@ while True:
     if not locked:
 
         if key == ord('w'):
+
             box_y = max(
                 0,
                 box_y - MOVE_SPEED
             )
 
         elif key == ord('s'):
+
             box_y = min(
                 height - box_h,
                 box_y + MOVE_SPEED
             )
 
         elif key == ord('a'):
+
             box_x = max(
                 0,
                 box_x - MOVE_SPEED
             )
 
         elif key == ord('d'):
+
             box_x = min(
                 width - box_w,
                 box_x + MOVE_SPEED
             )
 
-    # Reset
+    # Reset tracking
     if key == ord('t'):
 
         locked = False
@@ -865,6 +1043,8 @@ while True:
 
         track_points = None
 
+        box_x, box_y = center_frame()
+
     prev_gray = gray.copy()
 
     frame_count += 1
@@ -872,6 +1052,7 @@ while True:
 # =========================================================
 # CLEANUP
 # =========================================================
+
 cap.release()
 
 cv2.destroyAllWindows()
